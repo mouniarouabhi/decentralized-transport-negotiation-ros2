@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'robot_agent = transport_negotiation.robot_agent:main',
+	    'task_generator = transport_negotiation.task_generator:main',
         ],
     },
 )
