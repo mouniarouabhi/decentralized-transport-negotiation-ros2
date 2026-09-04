@@ -11,13 +11,13 @@ class TaskGenerator(Node):
 		super().__init__('task_generator')
 		self.get_logger().info('task_generator has started')
 		self.task_pub = self.create_publisher(String, '/task_announcements', 10)
-		self.timer = self.create_timer(10, self.publish_tasks)
+		self.timer = self.create_timer(3, self.publish_tasks)
 
 	def publish_tasks(self):
 		task = {
 			'task_id' : str(uuid.uuid4())[:8],
 			'pickup' : [0.0, 0.0],
-			'drop' : [1,1, 1.1],
+			'drop' : [1.1, 1.1],
 			'required_robots' : 1,
         }
 		msg = String()
