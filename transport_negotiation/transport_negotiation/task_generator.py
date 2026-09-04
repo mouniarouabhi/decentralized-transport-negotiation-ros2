@@ -5,6 +5,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 import json
 import uuid
+import random
 
 class TaskGenerator(Node):
 	def __init__(self):
@@ -14,11 +15,12 @@ class TaskGenerator(Node):
 		self.timer = self.create_timer(3, self.publish_tasks)
 
 	def publish_tasks(self):
+		required = random.choices([1,2], weights=[0.7, 0.3])[0]
 		task = {
 			'task_id' : str(uuid.uuid4())[:8],
 			'pickup' : [0.0, 0.0],
 			'drop' : [1.1, 1.1],
-			'required_robots' : 1,
+			'required_robots' : required,
         }
 		msg = String()
 		msg.data = json.dumps(task)

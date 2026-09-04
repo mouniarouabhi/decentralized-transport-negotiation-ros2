@@ -13,20 +13,28 @@ class RobotAgent(Node):
 		self.robot_id = self.get_parameter('robot_id').value
 		self.position = (0.0, 0.0)
 		self.busy = False
+
 		self.pending_tasks = {}
-		self.get_logger().info('robot_agent node started')
+		self.known_task = {}
+
 		self.task_sub = self.create_subscription(String, '/task_announcements', self.on_task_announcement, 10)
 		self.bid_sub = self.create_subscription(String, '/bids', self.on_bid, 10)
 		self.bid_pub = self.create_publisher(String, '/bids', 10)
+		self.task_announce_pub = self.create_publisher(String, 'task_announcements', 10)
+
+		self.get_logger().info('robot_agent node started')
+
 
 	def on_task_announcement(self, msg):
+		task = json.loads(msg.data)
+		self.known_task[task['task_id']] = task
+
 		if self.busy:
 			self.get_logger().info('Busy, skipping bid')
 			return
 		
 		self.get_logger().info(f'Received task announcement : {msg.data}') 
 
-		task = json.loads(msg.data)
 		pickup = tuple(task['pickup'])
 		drop = tuple(task['drop'][:2])
 
@@ -50,7 +58,9 @@ class RobotAgent(Node):
 			timer = self.create_timer(2.0, lambda tid=task_id: self.resolve_winner(tid))
 			self.pending_tasks[task_id] = {'bids': [], 'timer': timer}
 	
-		self.pending_tasks[task_id]['bids'].append(bid)
+		existing_robot_ids = [b['robot_id'] for b in self.pending_tasks[task_id]['bids']]
+		if bid['robot_id'] not in existing_robot_ids:
+			self.pending_tasks[task_id]['bids'].append(bid)
 
 	def resolve_winner(self, task_id):
 		entry = self.pending_tasks.get(task_id)
@@ -60,15 +70,27 @@ class RobotAgent(Node):
 		entry['timer'].cancel()
 
 		bids = entry['bids']
-		winner = sorted(bids, key=lambda b: (b['bid'], b['robot_id']))[0]
+		task = self.known_task.get(task_id, {})
+		required = task.get('required_robots', 1)
 
-		if winner['robot_id'] == self.robot_id:
-			self.get_logger().info(f'*** I WON task {task_id} - starting delivery ***')
+		sorted_bids = sorted(bids, key=lambda b: (b['bid'], b['robot_id']))
+
+		if len(sorted_bids) < required:
+			self.get_logger().info(f'Not enough bidders for {task_id} ({len(sorted_bids)}/{required}) - re-announcing')
+			msg = String()
+			msg.data = json.dumps(task)
+			self.task_announce_pub.publish(msg)
+			del self.pending_tasks[task_id]
+			return
+
+		crew = sorted_bids[:required]
+		crew_ids=[c['robot_id'] for c in crew]
+		if self.robot_id in crew_ids:
+			self.get_logger().info(f'*** I am part of the crew for {task_id} ***')
 			self.busy = True
 			self.finish_timer = self.create_timer(5.0, self.finish_task)
 		else:
-			self.get_logger().info(f'Task {task_id} won by {winner["robot_id"]} (bid={winner["bid"]:.2f})')
-
+			self.get_logger().info(f'Task {task_id} crew: {crew_ids}')
 		del self.pending_tasks[task_id]
 
 	def finish_task(self):
