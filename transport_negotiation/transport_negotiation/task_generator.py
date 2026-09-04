@@ -12,7 +12,7 @@ class TaskGenerator(Node):
 		super().__init__('task_generator')
 		self.get_logger().info('task_generator has started')
 		self.task_pub = self.create_publisher(String, '/task_announcements', 10)
-		self.timer = self.create_timer(3, self.publish_tasks)
+		self.timer = self.create_timer(15.0, self.publish_tasks)
 
 	def publish_tasks(self):
 		required = random.choices([1,2], weights=[0.7, 0.3])[0]

@@ -19,6 +19,8 @@ class RobotAgent(Node):
 		self.known_task = {}
 		self.monitoring = {}
 
+		self.watchdog_timer = self.create_timer(1.0, self.check_stalled_tasks)
+
 		self.task_sub = self.create_subscription(String, '/task_announcements', self.on_task_announcement, 10)
 		self.bid_sub = self.create_subscription(String, '/bids', self.on_bid, 10)
 		self.bid_pub = self.create_publisher(String, '/bids', 10)
@@ -90,7 +92,11 @@ class RobotAgent(Node):
 		crew = sorted_bids[:required]
 		crew_ids=[c['robot_id'] for c in crew]
 
-		self.monitoring[task_id] = time.time() + 5.0 + 3.0
+		self.monitoring[task_id] = {
+			'deadline' : time.time() + 5.0 + 3.0,
+			'crew': set(crew_ids),
+			'completed': set()
+		}
 
 		if self.robot_id in crew_ids:
 			self.get_logger().info(f'*** I am part of the crew for {task_id} ***')
@@ -127,8 +133,26 @@ class RobotAgent(Node):
 	def on_task_status(self, msg: String):
 		status = json.loads(msg.data)
 		if status.get('status') == 'done':
-			self.monitoring.pop(status['task_id'], None)
+			task_id = status['task_id']
+			entry = self.monitoring.get(task_id)
+			if entry is None:
+				return
+			entry['completed'].add(status['robot_id'])
+			if entry['completed'] == entry['crew']:
+				del self.monitoring[task_id]
 
+	def check_stalled_tasks(self):
+		now = time.time()
+		stalled = [tid for tid, entry in self.monitoring.items() if now > entry['deadline']]
+
+		for task_id in stalled:
+			self.get_logger().warning(f'Task {task_id} appears stalled - no completion signal received, Re-announcing.')
+			task = self.known_task.get(task_id)
+			if task:
+				msg = String()
+				msg.data = json.dumps(task)
+				self.task_announce_pub.publish(msg)
+			del self.monitoring[task_id]
 
 def main(args=None):
 	rclpy.init(args=args)
