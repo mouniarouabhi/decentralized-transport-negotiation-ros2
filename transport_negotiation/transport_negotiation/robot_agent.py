@@ -5,6 +5,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 import json
 import math
+import time
 
 class RobotAgent(Node):
 	def __init__(self):
@@ -16,10 +17,13 @@ class RobotAgent(Node):
 
 		self.pending_tasks = {}
 		self.known_task = {}
+		self.monitoring = {}
 
 		self.task_sub = self.create_subscription(String, '/task_announcements', self.on_task_announcement, 10)
 		self.bid_sub = self.create_subscription(String, '/bids', self.on_bid, 10)
 		self.bid_pub = self.create_publisher(String, '/bids', 10)
+		self.status_pub = self.create_publisher(String, '/task_status', 10)
+		self.status_sub = self.create_subscription(String, '/task_status', self.on_task_status, 10)
 		self.task_announce_pub = self.create_publisher(String, 'task_announcements', 10)
 
 		self.get_logger().info('robot_agent node started')
@@ -85,18 +89,45 @@ class RobotAgent(Node):
 
 		crew = sorted_bids[:required]
 		crew_ids=[c['robot_id'] for c in crew]
+
+		self.monitoring[task_id] = time.time() + 5.0 + 3.0
+
 		if self.robot_id in crew_ids:
 			self.get_logger().info(f'*** I am part of the crew for {task_id} ***')
 			self.busy = True
-			self.finish_timer = self.create_timer(5.0, self.finish_task)
+			self.finish_timer = self.create_timer(5.0, lambda tid= task_id: self.finish_task(tid))
+			status = {
+				'task_id' : task_id,
+				'robot_id' : self.robot_id,
+				'status' : 'started',
+				'expected_duration' : 5.0
+			}
+			smsg = String()
+			smsg.data = json.dumps(status)
+			self.status_pub.publish(smsg)
 		else:
 			self.get_logger().info(f'Task {task_id} crew: {crew_ids}')
 		del self.pending_tasks[task_id]
 
-	def finish_task(self):
+	def finish_task(self, task_id):
 		self.finish_timer.cancel()
 		self.busy = False
+
+		status = {
+			'task_id' : task_id,
+			'robot_id' : self.robot_id,
+			'status' : 'done'
+		}
+		smsg = String()
+		smsg.data = json.dumps(status)
+		self.status_pub.publish(smsg)
+		
 		self.get_logger().info('Task complete, available again')
+
+	def on_task_status(self, msg: String):
+		status = json.loads(msg.data)
+		if status.get('status') == 'done':
+			self.monitoring.pop(status['task_id'], None)
 
 
 def main(args=None):
